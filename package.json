@@ -1,0 +1,56 @@
+{
+  "name": "onlyfiles",
+  "version": "0.1.0",
+  "description": "Fast parallel disk-usage analyser with a local web UI — every folder and every file, biggest first. Show me what you're hiding down there.",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "onlyfiles": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "lib",
+    "ui",
+    "assets/icon-64.png",
+    "assets/icon-512.png",
+    "assets/logo-header-dark.png",
+    "assets/logo-header-light.png",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "disk-usage",
+    "disk-space",
+    "disk-analyzer",
+    "disk",
+    "du",
+    "ncdu",
+    "cli",
+    "cleanup",
+    "storage",
+    "treemap",
+    "housekeeping",
+    "trash",
+    "node_modules",
+    "cache"
+  ],
+  "author": "Giuliano Buratti",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gburatti/onlyfiles.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gburatti/onlyfiles/issues"
+  },
+  "homepage": "https://github.com/gburatti/onlyfiles#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "trash": "^10.1.1"
+  }
+}

@@ -1,0 +1,1251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>onlyfiles</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161920; --panel2: #1c2029; --line: #262b36;
+    --fg: #e6e9ef; --dim: #8b93a5; --dimmer: #5d6473;
+    --accent: #5aa9ff; --accent-dim: #24405e;
+    --warn: #ffb454; --danger: #ff5f56; --ok: #4ec97a;
+    --bar: #3d6ea5;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9; --panel: #fff; --panel2: #f0f2f5; --line: #dde1e8;
+      --fg: #1a1d23; --dim: #626a7a; --dimmer: #9aa2b1;
+      --accent: #0b6bcb; --accent-dim: #cfe2f8; --bar: #7fb1e8;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  /* select is included deliberately: it does not inherit colour from its parent
+     the way a button does, so without this it renders as the UA default black —
+     invisible on the dark panel background. */
+  button, select { font: inherit; color: inherit; cursor: pointer; }
+  /* The dropdown popup is drawn by the OS and needs its own colours, or the
+     options come out dark-on-dark. */
+  select option { color: var(--fg); background: var(--panel); }
+  .btn {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 10px; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; border-color: var(--line); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+  .btn.danger:hover { background: var(--danger); color: #fff; }
+
+  /* ---------- header ---------- */
+  header { border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
+  .hrow { display: flex; align-items: center; gap: 14px; padding: 10px 16px; flex-wrap: wrap; }
+  .brand { font-weight: 650; letter-spacing: -.2px; display: flex; align-items: center; gap: 9px; }
+  .brand small { color: var(--dimmer); font-weight: 400; }
+  /* Transparent PNGs: the dark variant (white "Only") is the default and the
+     light one is swapped in by the <picture> media query. */
+  .brand .logo { height: 26px; width: auto; display: block; }
+  .brand picture { display: block; }
+  .rootpath {
+    font-family: var(--mono); font-size: 12px; color: var(--dim);
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 4px 8px; max-width: 44ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    text-align: left;
+  }
+  .rootpath:hover { border-color: var(--accent); color: var(--fg); }
+
+  /* ---------- folder picker ---------- */
+  .pick-path {
+    width: 100%; margin: 2px 0 10px; padding: 8px 10px; font-family: var(--mono); font-size: 12px;
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; color: var(--fg);
+  }
+  .pick-path:focus { outline: none; border-color: var(--accent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chip {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 20px;
+    padding: 3px 11px; font-size: 11.5px; color: var(--dim);
+  }
+  .chip:hover { border-color: var(--accent); color: var(--fg); }
+  .chip.vol { border-style: dashed; }
+  .dirlist {
+    border: 1px solid var(--line); border-radius: 7px; background: var(--panel2);
+    max-height: 300px; overflow: auto;
+  }
+  .dirlist button {
+    display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+    background: none; border: none; border-bottom: 1px solid var(--line);
+    padding: 6px 10px; font-family: var(--mono); font-size: 11.5px; color: var(--fg);
+  }
+  .dirlist button:last-child { border-bottom: none; }
+  .dirlist button:hover { background: var(--accent-dim); }
+  .dirlist button.hid { color: var(--dim); }
+  .dirlist .up { color: var(--accent); }
+  .pickrow { display: flex; align-items: center; gap: 12px; margin: 10px 0 0; flex-wrap: wrap; }
+  .pickrow label { display: flex; align-items: center; gap: 5px; color: var(--dim); font-size: 11.5px; }
+  .pickrow select { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; }
+  .spacer { flex: 1; }
+  .metrics { display: flex; gap: 18px; align-items: center; }
+  .metric { text-align: right; line-height: 1.2; }
+  .metric b { font-size: 15px; font-variant-numeric: tabular-nums; }
+  .metric span { display: block; color: var(--dimmer); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; }
+  .diskbar { width: 190px; }
+  .diskbar .track { height: 7px; background: var(--panel2); border-radius: 4px; overflow: hidden; border: 1px solid var(--line); }
+  .diskbar .fill { height: 100%; background: linear-gradient(90deg, var(--bar), var(--accent)); }
+  .diskbar .fill.tight { background: linear-gradient(90deg, #d1793a, var(--danger)); }
+  .diskbar .lbl { display: flex; justify-content: space-between; color: var(--dimmer); font-size: 10.5px; margin-bottom: 3px; }
+
+  nav { display: flex; gap: 2px; padding: 0 16px; border-top: 1px solid var(--line); overflow-x: auto; }
+  nav button {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    padding: 9px 12px; color: var(--dim); white-space: nowrap;
+  }
+  nav button:hover { color: var(--fg); }
+  nav button.on { color: var(--accent); border-bottom-color: var(--accent); }
+  nav .count { color: var(--dimmer); font-size: 11px; }
+
+  /* ---------- toolbar ---------- */
+  .toolbar {
+    display: flex; align-items: center; gap: 10px; padding: 8px 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel); flex: none; flex-wrap: wrap;
+  }
+  .toolbar input[type=search], .toolbar select {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+    color: var(--fg); padding: 5px 9px; font: inherit;
+  }
+  .toolbar input[type=search] { width: 260px; }
+  .hint { color: var(--dimmer); font-size: 11.5px; }
+
+  /* ---------- table ---------- */
+  main { flex: 1; overflow: auto; }
+  .grid { width: 100%; }
+  .r {
+    display: grid; align-items: center; gap: 10px;
+    /* The last column has to fit Show/Open/Copy/✕ side by side. Sized too
+       narrow, the buttons overflow leftward and sit on top of the Modified
+       column, because .acts is justified to flex-end. */
+    grid-template-columns: 26px minmax(220px, 1fr) 92px 132px 96px 132px 196px;
+    padding: 0 16px; height: 27px; border-bottom: 1px solid transparent;
+  }
+  /* Views that show a path give it real room and let it grow with the window —
+     the path is the single most useful thing in those rows, so it gets more
+     space than the name and the bar. */
+  .grid.withpath .r {
+    grid-template-columns: 26px minmax(160px, 0.85fr) 92px 100px 76px minmax(320px, 1.7fr) 196px;
+  }
+
+  /* Narrow windows: drop the bar and the modified column rather than letting
+     everything crush together. */
+  @media (max-width: 1080px) {
+    .r { grid-template-columns: 26px minmax(150px, 1fr) 88px 92px 196px; }
+    .r > :nth-child(4), .r > :nth-child(6) { display: none; }
+
+    /* ...but never drop the path. Sacrifice the bar and the file count instead. */
+    .grid.withpath .r {
+      grid-template-columns: 26px minmax(110px, 0.7fr) 88px minmax(200px, 1.5fr) 196px;
+    }
+    .grid.withpath .r > :nth-child(5) { display: none; }
+    .grid.withpath .r > :nth-child(6) { display: block; }
+  }
+  .r.head {
+    position: sticky; top: 0; z-index: 2; background: var(--bg);
+    border-bottom: 1px solid var(--line); height: 30px;
+    color: var(--dimmer); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px;
+  }
+  .r.head .num, .r.head .name { cursor: default; }
+  .row:hover { background: var(--panel2); }
+  .row.sel { background: var(--accent-dim); }
+  .name { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .tw {
+    flex: none; width: 15px; height: 15px; display: grid; place-items: center;
+    color: var(--dim); border-radius: 3px; font-size: 9px; user-select: none;
+  }
+  .tw.can { cursor: pointer; }
+  .tw.can:hover { background: var(--line); color: var(--fg); }
+  .tw svg { transition: transform .12s; }
+  .tw.open svg { transform: rotate(90deg); }
+  .ico { flex: none; width: 15px; text-align: center; opacity: .8; font-size: 12px; }
+  .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .label.dir { font-weight: 500; }
+  .label.synth { color: var(--dimmer); font-style: italic; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 11.5px; }
+  .dim { color: var(--dim); }
+  .barcell .track { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; }
+  .barcell .fill { height: 100%; background: var(--bar); border-radius: 3px; }
+  .acts { display: flex; gap: 3px; justify-content: flex-end; opacity: 0; flex-wrap: nowrap; min-width: 0; }
+  .row:hover .acts, .row.sel .acts { opacity: 1; }
+  .acts button {
+    background: none; border: 1px solid transparent; border-radius: 4px;
+    padding: 1px 5px; color: var(--dim); font-size: 11px; line-height: 1.6;
+  }
+  .acts button:hover { border-color: var(--line); color: var(--fg); background: var(--panel); }
+  .acts button.del:hover { border-color: var(--danger); color: var(--danger); }
+  /* direction: rtl truncates from the *start*, keeping the end of the path
+     visible — "…/Xcode/DerivedData/App-abc123" tells you far more than
+     "/Users/giuliano/Library/Devel…". */
+  .pathcell {
+    font-family: var(--mono); font-size: 11.5px; color: var(--dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    direction: rtl; text-align: left; min-width: 0; cursor: default;
+  }
+  .pathcell:hover { color: var(--fg); }
+
+  /* Full-path tooltip. The native title attribute waits about a second before
+     appearing, which is too slow for something you read on every row. */
+  .tip {
+    position: fixed; top: 0; left: 0; z-index: 100; pointer-events: none;
+    opacity: 0; transition: opacity .08s;
+    background: var(--panel); color: var(--fg);
+    border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 7px;
+    padding: 7px 10px; font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+    max-width: min(78vw, 900px); word-break: break-all;
+    box-shadow: 0 10px 28px rgba(0,0,0,.5);
+  }
+  .tip.on { opacity: 1; }
+  .tip b { color: var(--dim); font-weight: 400; display: block; font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px; font-family: inherit; }
+  .flag { font-size: 10px; padding: 0 4px; border-radius: 3px; border: 1px solid var(--line); color: var(--dimmer); flex: none; }
+  input[type=checkbox] { accent-color: var(--accent); margin: 0; cursor: pointer; }
+
+  /* ---------- reclaim cards ---------- */
+  .cards { padding: 14px 16px; display: grid; gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .card > summary {
+    padding: 11px 14px; display: grid; grid-template-columns: 1fr 110px 78px 22px;
+    gap: 12px; align-items: center; cursor: pointer; list-style: none;
+  }
+  .card > summary::-webkit-details-marker { display: none; }
+  .card > summary:hover { background: var(--panel2); }
+  .card .cat { font-weight: 600; }
+  .card .why { color: var(--dim); font-size: 11.5px; font-weight: 400; }
+  .card .chev { color: var(--dim); transition: transform .12s; }
+  .card[open] .chev { transform: rotate(90deg); }
+  .card .items { border-top: 1px solid var(--line); }
+
+  /* ---------- overlays ---------- */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; z-index: 50; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    width: min(620px, 92vw); max-height: 84vh; display: flex; flex-direction: column;
+    box-shadow: 0 24px 60px rgba(0,0,0,.5);
+  }
+  .modal h2 { margin: 0; padding: 16px 18px 10px; font-size: 15px; }
+  .modal .body { padding: 0 18px; overflow: auto; }
+  .modal .foot { padding: 14px 18px; display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--line); margin-top: 14px; }
+  .plist { font-family: var(--mono); font-size: 11.5px; background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; max-height: 200px; overflow: auto; }
+  .plist div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 1px 0; }
+  .choice { display: flex; gap: 9px; align-items: flex-start; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; cursor: pointer; }
+  .choice.on { border-color: var(--accent); background: var(--accent-dim); }
+  .choice b { display: block; }
+  .choice small { color: var(--dim); }
+  .typebox { width: 100%; margin-top: 9px; padding: 7px 9px; font-family: var(--mono);
+    background: var(--panel2); border: 1px solid var(--danger); border-radius: 6px; color: var(--fg); }
+
+  .progress { position: fixed; inset: 0; background: var(--bg); display: grid; place-items: center; z-index: 60; }
+  .progress .box { text-align: center; max-width: 480px; }
+  .progress .box h1 { font-size: 17px; margin: 0 0 6px; }
+  .progress .box p { color: var(--dim); font-family: var(--mono); font-size: 12px; margin: 4px 0; }
+  .spin { width: 26px; height: 26px; margin: 0 auto 16px; border: 2.5px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: sp .8s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+
+  .selbar {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 9px 13px; display: flex; align-items: center; gap: 11px; z-index: 40;
+    box-shadow: 0 12px 34px rgba(0,0,0,.45);
+  }
+  .toast {
+    position: fixed; bottom: 18px; right: 18px; z-index: 70; display: flex; flex-direction: column; gap: 8px;
+  }
+  .toast > div {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 8px; padding: 9px 13px; max-width: 380px; box-shadow: 0 10px 26px rgba(0,0,0,.4);
+    animation: slide .18s ease-out;
+  }
+  .toast > div.err { border-left-color: var(--danger); }
+  .toast > div.ok { border-left-color: var(--ok); }
+  @keyframes slide { from { opacity: 0; transform: translateY(8px); } }
+  .empty { padding: 48px 16px; text-align: center; color: var(--dim); }
+  .banner {
+    margin: 12px 16px 0; padding: 9px 12px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn);
+    color: var(--dim); font-size: 12px; display: flex; gap: 10px; align-items: center;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hrow">
+    <div class="brand">
+      <picture>
+        <source srcset="/logo-light.png" media="(prefers-color-scheme: light)">
+        <img src="/logo-dark.png" alt="onlyfiles" class="logo">
+      </picture>
+      <small id="ro"></small>
+    </div>
+    <button class="rootpath" id="rootpath" title="Click to scan a different folder">—</button>
+    <button class="btn" id="btn-pick" title="Choose a different folder to scan">📂 Change folder</button>
+    <button class="btn" id="btn-rescan" title="Scan the same folder again from scratch">↻ Rescan</button>
+    <select id="exportfmt" class="btn" title="Report format" style="padding:5px 8px">
+      <option value="md">Markdown report</option>
+      <option value="csv">CSV — every entry</option>
+      <option value="txt">Text tree</option>
+      <option value="json">JSON</option>
+    </select>
+    <button class="btn" id="btn-export">↓ Export</button>
+    <div class="spacer"></div>
+    <div class="metrics">
+      <div class="metric"><b id="m-size">—</b><span>scanned</span></div>
+      <div class="metric"><b id="m-files">—</b><span>files</span></div>
+      <div class="metric"><b id="m-dirs">—</b><span>folders</span></div>
+      <div class="diskbar">
+        <div class="lbl"><span id="d-used">—</span><span id="d-free">—</span></div>
+        <div class="track"><div class="fill" id="d-fill" style="width:0"></div></div>
+      </div>
+    </div>
+  </div>
+  <nav id="nav"></nav>
+</header>
+
+<div class="toolbar">
+  <input type="search" id="q" placeholder="Search names across the whole scan…">
+  <span id="tool-extra"></span>
+  <div class="spacer"></div>
+  <span class="hint" id="hint"></span>
+</div>
+
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = '__ONLYFILES_TOKEN__';
+const READONLY = '__ONLYFILES_READONLY__' === 'true';
+const FILEMANAGER = '__ONLYFILES_FILEMANAGER__';
+
+/* ---------------------------------------------------------------- helpers */
+const $ = (s) => document.querySelector(s);
+const el = (tag, cls, txt) => { const n = document.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+
+function fmt(bytes) {
+  if (bytes == null) return '—';
+  const u = ['B','KiB','MiB','GiB','TiB','PiB']; let n = Math.abs(bytes), i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  const dp = i === 0 ? 0 : n < 10 ? 2 : n < 100 ? 1 : 0;
+  return (bytes < 0 ? '-' : '') + n.toFixed(dp) + ' ' + u[i];
+}
+const nfmt = (n) => (n == null ? '—' : n.toLocaleString());
+function dfmt(secs) {
+  if (!secs) return '';
+  const d = new Date(secs * 1000), now = Date.now();
+  const days = (now - d) / 86400000;
+  if (days < 1) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (days < 365) return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString([], { year: 'numeric', month: 'short' });
+}
+
+async function api(path, { method = 'GET', body } = {}) {
+  const res = await fetch(path, {
+    method,
+    headers: { 'x-onlyfiles-token': TOKEN, ...(body ? { 'content-type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+function toast(msg, kind = '') {
+  const n = el('div', kind, msg);
+  $('#toast').append(n);
+  setTimeout(() => { n.style.opacity = '0'; n.style.transition = 'opacity .3s'; setTimeout(() => n.remove(), 300); }, kind === 'err' ? 7000 : 3600);
+}
+
+const CHEV = '<svg width="7" height="9" viewBox="0 0 7 9"><path d="M0 0l7 4.5L0 9z" fill="currentColor"/></svg>';
+const iconFor = (it) => it.isSymlink ? '↳' : it.isDir ? '📁' : it.synthetic ? '⋯' : '📄';
+
+/** Abbreviate the home prefix for display only. Tooltip and clipboard keep the
+ *  real path — a "~" you cannot paste into a terminal would be a downgrade. */
+function shortPath(p) {
+  if (!p) return '';
+  const home = S.status && S.status.home;
+  return home && p.startsWith(home + '/') ? '~' + p.slice(home.length) : p;
+}
+
+/* ------------------------------------------------------- full-path tooltip */
+const tipBox = el('div', 'tip');
+document.body.append(tipBox);
+let tipFor = null;
+
+function placeTip(e) {
+  const pad = 14;
+  const r = tipBox.getBoundingClientRect();
+  let x = e.clientX + pad;
+  let y = e.clientY + pad;
+  if (x + r.width > innerWidth - 8) x = innerWidth - 8 - r.width;
+  if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+  tipBox.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, y)}px)`;
+}
+
+// Delegated, because there can be thousands of rows and attaching a listener to
+// each one would be wasteful.
+document.addEventListener('mouseover', (e) => {
+  const t = e.target.closest && e.target.closest('[data-full]');
+  if (t === tipFor) return;
+  tipFor = t;
+  if (!t) { tipBox.classList.remove('on'); return; }
+  tipBox.innerHTML = '';
+  if (t.dataset.tiplabel) tipBox.append(el('b', '', t.dataset.tiplabel));
+  tipBox.append(document.createTextNode(t.dataset.full));
+  tipBox.classList.add('on');
+  placeTip(e);
+});
+document.addEventListener('mousemove', (e) => { if (tipFor) placeTip(e); });
+document.addEventListener('mouseleave', () => { tipFor = null; tipBox.classList.remove('on'); });
+// Scrolling moves rows out from under the cursor, so the tooltip must go too.
+document.addEventListener('scroll', () => { tipFor = null; tipBox.classList.remove('on'); }, true);
+
+/** Attach the immediate full-path tooltip to an element. */
+function withTip(node, full, label) {
+  if (!full) return node;
+  node.dataset.full = full;
+  if (label) node.dataset.tiplabel = label;
+  return node;
+}
+
+/* ---------------------------------------------------------------- state */
+const S = {
+  status: null,
+  view: 'tree',
+  expanded: new Set(),
+  kids: new Map(),      // path -> {items, total, truncated}
+  shown: new Map(),      // path -> how many children are rendered
+  sel: new Set(),        // selected real paths
+  meta: new Map(),       // path -> item (so the action bar knows sizes)
+  rows: [],
+  liveDirs: new Set(),   // dirs the user asked for a full live listing of
+  // Which "Reclaim candidates" groups are expanded. Held here, not in the DOM,
+  // so a re-render for any reason cannot silently collapse them.
+  openCats: new Set(),
+  // path -> [row elements]. Lets a selection change repaint just those rows
+  // instead of rebuilding the view, which is what used to collapse the groups
+  // and throw away the scroll position.
+  rowEls: new Map(),
+};
+
+const VIEWS = [
+  ['tree', 'Tree'],
+  ['reclaim', 'Reclaim candidates'],
+  ['files', 'Biggest files'],
+  ['dirs', 'Fullest folders'],
+  ['kinds', 'File types'],
+  ['stale', 'Old & large'],
+];
+
+/* ---------------------------------------------------------------- header */
+function paintStatus(st) {
+  S.status = st;
+  $('#ro').textContent = st.readOnly ? '· read-only' : '';
+  const rp = st.rootPath || '—';
+  $('#rootpath').textContent = shortPath(rp);
+  withTip($('#rootpath'), rp, 'scanning');
+
+  if (st.stats) {
+    $('#m-size').textContent = fmt(st.stats.sizeOnDisk);
+    $('#m-files').textContent = nfmt(st.stats.files);
+    $('#m-dirs').textContent = nfmt(st.stats.dirs);
+  }
+  const d = st.disk;
+  if (d && d.total) {
+    const pct = (d.used / d.total) * 100;
+    $('#d-used').textContent = fmt(d.used) + ' used';
+    $('#d-free').textContent = fmt(d.free) + ' free';
+    const f = $('#d-fill');
+    f.style.width = pct.toFixed(1) + '%';
+    f.classList.toggle('tight', pct > 88);
+  }
+
+  const bits = [];
+  if (st.stats && st.stats.errors) bits.push(`${nfmt(st.stats.errors)} unreadable`);
+  if (st.stats && st.stats.minFileSize) bits.push(`files < ${fmt(st.stats.minFileSize)} grouped`);
+  if (st.deleted && st.deleted.count) bits.push(`freed ${fmt(st.deleted.bytes)} this session`);
+  if (st.stats) bits.push(`scanned in ${(st.stats.elapsedMs / 1000).toFixed(1)}s`);
+  $('#hint').textContent = bits.join('  ·  ');
+}
+
+function paintNav() {
+  const nav = $('#nav');
+  nav.innerHTML = '';
+  for (const [id, label] of VIEWS) {
+    const b = el('button', S.view === id ? 'on' : '', label);
+    b.onclick = () => { S.view = id; $('#q').value = ''; paintNav(); render(); };
+    nav.append(b);
+  }
+}
+
+/* ---------------------------------------------------------------- rows */
+function headRow(cols) {
+  const r = el('div', 'r head');
+  for (const [txt, cls] of cols) r.append(el('div', cls || '', txt));
+  return r;
+}
+
+/** One row of the tree/list. `depth` indents the name cell. */
+function makeRow(it, { depth = 0, showPath = false, barBase = 0 } = {}) {
+  const real = !!it.path && !it.synthetic;
+  const r = el('div', 'row r' + (real && S.sel.has(it.path) ? ' sel' : ''));
+
+  // checkbox
+  const cbWrap = el('div');
+  if (real && !READONLY) {
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = S.sel.has(it.path);
+    cb.onclick = (e) => { e.stopPropagation(); toggleSel(it); };
+    cbWrap.append(cb);
+  }
+  r.append(cbWrap);
+
+  // name + twisty
+  const name = el('div', 'name');
+  name.style.paddingLeft = (depth * 15) + 'px';
+  const tw = el('div', 'tw');
+  if (it.isDir && it.hasChildren !== false && !it.synthetic) {
+    tw.className = 'tw can' + (S.expanded.has(it.path) ? ' open' : '');
+    tw.innerHTML = CHEV;
+    tw.onclick = (e) => { e.stopPropagation(); toggleExpand(it.path); };
+  }
+  name.append(tw, el('div', 'ico', iconFor(it)));
+  const lbl = el('div', 'label' + (it.isDir ? ' dir' : '') + (it.synthetic ? ' synth' : ''),
+    showPath ? shortPath(it.name) : it.name);
+  withTip(lbl, it.path, it.isDir ? 'folder' : it.synthetic ? null : 'file');
+  name.append(lbl);
+  if (it.unreadable) name.append(el('span', 'flag', 'no access'));
+  if (it.skipped) name.append(el('span', 'flag', 'other volume'));
+  if (it.links > 1) name.append(el('span', 'flag', it.links + ' links'));
+  r.append(name);
+
+  // size
+  r.append(el('div', 'num', fmt(it.size)));
+
+  // bar
+  const bc = el('div', 'barcell');
+  const base = barBase || 0;
+  const frac = it.pctOfParent != null ? it.pctOfParent : (base ? it.size / base : 0);
+  const track = el('div', 'track'), fill = el('div', 'fill');
+  fill.style.width = Math.max(frac * 100, frac > 0 ? 1.5 : 0).toFixed(2) + '%';
+  track.append(fill);
+  bc.append(track);
+  bc.title = (frac * 100).toFixed(1) + '%';
+  r.append(bc);
+
+  // item count
+  r.append(el('div', 'num dim', it.isDir ? nfmt(it.files) : it.synthetic ? nfmt(it.count) : ''));
+
+  // modified / path
+  if (showPath) {
+    const p = el('div', 'pathcell', shortPath(it.path) || '');
+    withTip(p, it.path, 'full path');
+    r.append(p);
+  } else {
+    r.append(el('div', 'num dim', dfmt(it.mtime)));
+  }
+
+  // actions
+  const acts = el('div', 'acts');
+  if (real) {
+    // "Reveal" and "Open" both end up in the file manager for a folder, which is
+    // not obvious from two three-letter verbs. Spell out the difference: Show
+    // points at the item from outside, Open goes into / launches it.
+    acts.append(mkAct('Show', `Show in ${FILEMANAGER} — highlights ${it.isDir ? 'this folder' : 'this file'} inside its parent folder`,
+      () => api('/api/reveal', { method: 'POST', body: { path: it.path } })));
+
+    acts.append(mkAct('Open', it.isDir
+      ? `Open this folder in ${FILEMANAGER} and look inside it`
+      : 'Open this file in whichever app normally handles this file type',
+      () => api('/api/open', { method: 'POST', body: { path: it.path } })));
+
+    acts.append(mkAct('Copy', 'Copy the full path to the clipboard', async () => {
+      await navigator.clipboard.writeText(it.path); toast('Path copied');
+    }));
+    if (!READONLY) {
+      const d = mkAct('✕', it.isDir ? 'Delete this folder and everything in it…' : 'Delete this file…', () => confirmDelete([it]));
+      d.className = 'del';
+      acts.append(d);
+    }
+  }
+  r.append(acts);
+
+  if (real) {
+    r.onclick = () => toggleSel(it);
+    S.meta.set(it.path, it);
+    const seen = S.rowEls.get(it.path);
+    if (seen) seen.push(r); else S.rowEls.set(it.path, [r]);
+  }
+  return r;
+}
+
+function mkAct(text, title, fn) {
+  const b = el('button', '', text);
+  b.title = title;
+  b.onclick = async (e) => {
+    e.stopPropagation();
+    try { await fn(); } catch (err) { toast(err.message, 'err'); }
+  };
+  return b;
+}
+
+/** Repaint the rows for one path to match the current selection state. */
+function paintRowSel(path, on) {
+  for (const r of S.rowEls.get(path) || []) {
+    r.classList.toggle('sel', on);
+    const cb = r.querySelector('input[type=checkbox]');
+    if (cb) cb.checked = on;
+  }
+}
+
+function toggleSel(it) {
+  if (!it.path || it.synthetic || READONLY) return;
+  const on = !S.sel.has(it.path);
+  if (on) { S.sel.add(it.path); S.meta.set(it.path, it); }
+  else S.sel.delete(it.path);
+  // Deliberately not a re-render: selecting a row is a per-row visual change.
+  // Rebuilding the whole view for it collapsed open groups, dropped the scroll
+  // position, and made multi-select needlessly painful.
+  paintRowSel(it.path, on);
+  paintSelBar();
+}
+
+/* ---------------------------------------------------------------- tree */
+async function toggleExpand(path) {
+  if (S.expanded.has(path)) S.expanded.delete(path);
+  else {
+    S.expanded.add(path);
+    if (!S.kids.has(path)) await loadKids(path);
+  }
+  render({ keepScroll: true });
+}
+
+async function loadKids(path, extra = 0) {
+  try {
+    const live = S.liveDirs.has(path);
+    const data = live
+      ? await api(`/api/listing?path=${encodeURIComponent(path)}`)
+      : await api(`/api/children?path=${encodeURIComponent(path)}&limit=${2000 + extra}`);
+    if (live) {
+      const max = Math.max(1, ...data.items.map((i) => i.size));
+      for (const i of data.items) { i.pctOfParent = i.size / max; i.hasChildren = i.isDir; }
+    }
+    S.kids.set(path, data);
+    S.shown.set(path, Math.min(data.items.length, 200));
+  } catch (err) {
+    toast(err.message, 'err');
+    S.expanded.delete(path);
+  }
+}
+
+function treeRows() {
+  const rows = [];
+  const root = S.status.rootPath;
+
+  const rootItem = {
+    name: shortPath(root), path: root, size: S.status.stats.sizeOnDisk, isDir: true,
+    files: S.status.stats.files, mtime: 0, pctOfParent: 1, hasChildren: true,
+  };
+  rows.push(makeRow(rootItem, { depth: 0 }));
+  if (S.expanded.has(root)) emit(root, 1);
+
+  function emit(path, depth) {
+    const data = S.kids.get(path);
+    if (!data) { rows.push(loadingRow(depth)); return; }
+    const shown = S.shown.get(path) ?? data.items.length;
+    const slice = data.items.slice(0, shown);
+    for (const it of slice) {
+      rows.push(makeRow(it, { depth }));
+      if (it.isDir && it.path && S.expanded.has(it.path)) emit(it.path, depth + 1);
+    }
+    const hidden = data.items.length - slice.length;
+    if (hidden > 0) rows.push(moreRow(path, hidden, depth));
+    else if (data.truncated) rows.push(truncRow(path, data, depth));
+    if (!data.live && data.items.length && depth > 0) {
+      // Offer the true file-by-file listing for this folder.
+      rows.push(liveRow(path, depth));
+    }
+  }
+  return rows;
+}
+
+function loadingRow(depth) {
+  const r = el('div', 'r row');
+  r.append(el('div'), el('div', 'label synth', 'loading…'));
+  r.firstChild.nextSibling.style.paddingLeft = (depth * 15 + 20) + 'px';
+  return r;
+}
+function moreRow(path, hidden, depth) {
+  const r = el('div', 'r row');
+  const c = el('div', 'name');
+  c.style.paddingLeft = (depth * 15 + 20) + 'px';
+  const b = el('button', 'btn', `show ${Math.min(hidden, 500).toLocaleString()} more of ${hidden.toLocaleString()}`);
+  b.style.padding = '1px 7px';
+  b.onclick = (e) => { e.stopPropagation(); S.shown.set(path, (S.shown.get(path) || 0) + 500); render({ keepScroll: true }); };
+  c.append(b);
+  r.append(el('div'), c);
+  return r;
+}
+function truncRow(path, data, depth) {
+  const r = el('div', 'r row');
+  const c = el('div', 'name');
+  c.style.paddingLeft = (depth * 15 + 20) + 'px';
+  c.append(el('span', 'label synth', `${(data.total - data.items.length).toLocaleString()} further entries not loaded`));
+  r.append(el('div'), c);
+  return r;
+}
+function liveRow(path, depth) {
+  const r = el('div', 'r row');
+  const c = el('div', 'name');
+  c.style.paddingLeft = (depth * 15 + 20) + 'px';
+  const b = el('button', 'btn', 'list every file here (live re-read)');
+  b.style.padding = '1px 7px';
+  b.title = 'The cached scan groups tiny files together. This re-reads the folder and shows each entry.';
+  b.onclick = async (e) => {
+    e.stopPropagation();
+    S.liveDirs.add(path);
+    await loadKids(path);
+    render({ keepScroll: true });
+  };
+  c.append(b);
+  r.append(el('div'), c);
+  return r;
+}
+
+/* ---------------------------------------------------------------- views */
+async function render(opts = {}) {
+  const main = $('#main');
+  const q = $('#q').value.trim();
+  $('#tool-extra').innerHTML = '';
+
+  // Expanding a folder or loading more rows should not scroll you back to the
+  // top of a list you were reading halfway down.
+  const keepScroll = opts.keepScroll ? main.scrollTop : null;
+  const restore = () => { if (keepScroll != null) main.scrollTop = keepScroll; };
+
+  // Rebuilt below, so the stale element references must go first.
+  S.rowEls.clear();
+
+  if (q) { await renderSearch(main, q); restore(); return; }
+
+  if (S.view === 'tree') {
+    if (!S.expanded.has(S.status.rootPath)) {
+      S.expanded.add(S.status.rootPath);
+      if (!S.kids.has(S.status.rootPath)) await loadKids(S.status.rootPath);
+    }
+    const g = el('div', 'grid');
+    g.append(headRow([['', ''], ['name', 'name'], ['size', 'num'], ['share of parent', ''], ['files', 'num'], ['modified', 'num'], ['actions', 'num']]));
+    for (const r of treeRows()) g.append(r);
+    swap(main, g);
+    paintSelBar();
+    restore();
+    return;
+  }
+
+  if (S.view === 'reclaim') await renderReclaim(main);
+  else if (S.view === 'files') await renderFlat(main, '/api/largest-files?limit=300', 'No files found.');
+  else if (S.view === 'dirs') await renderDirs(main);
+  else if (S.view === 'kinds') await renderKinds(main);
+  else if (S.view === 'stale') await renderStale(main);
+  restore();
+}
+
+function swap(main, node) { main.innerHTML = ''; main.append(node); }
+
+async function renderFlat(main, url, emptyMsg) {
+  const { items } = await api(url);
+  if (!items.length) return swap(main, el('div', 'empty', emptyMsg));
+  const max = Math.max(...items.map((i) => i.size), 1);
+  const g = el('div', 'grid withpath');
+  g.append(headRow([['', ''], ['name', 'name'], ['size', 'num'], ['share of largest', ''], ['', 'num'], ['path', ''], ['actions', 'num']]));
+  for (const it of items) g.append(makeRow({ ...it, pctOfParent: it.size / max }, { showPath: true }));
+  swap(main, g);
+  paintSelBar();
+}
+
+async function renderDirs(main) {
+  const { items } = await api('/api/largest-dirs?limit=300');
+  if (!items.length) return swap(main, el('div', 'empty', 'Nothing to show.'));
+  const max = Math.max(...items.map((i) => i.ownSize), 1);
+  const g = el('div', 'grid withpath');
+  g.append(headRow([['', ''], ['folder', 'name'], ['own bytes', 'num'], ['share of largest', ''], ['files', 'num'], ['path', ''], ['actions', 'num']]));
+  for (const it of items) {
+    g.append(makeRow({ ...it, isDir: true, hasChildren: false, size: it.ownSize, pctOfParent: it.ownSize / max }, { showPath: true }));
+  }
+  const note = el('div', 'banner', 'Ranked by bytes sitting directly in each folder, not counting subfolders — that points at the folder actually holding the data instead of just listing parents.');
+  const wrap = el('div');
+  wrap.append(note, g);
+  swap(main, wrap);
+  paintSelBar();
+}
+
+async function renderKinds(main) {
+  const { items } = await api('/api/kinds?limit=60');
+  const max = Math.max(...items.map((i) => i.size), 1);
+  const g = el('div', 'grid');
+  g.append(headRow([['', ''], ['extension', 'name'], ['size', 'num'], ['share', ''], ['files', 'num'], ['', ''], ['', '']]));
+  for (const it of items) {
+    const r = el('div', 'row r');
+    r.append(el('div'));
+    const n = el('div', 'name');
+    n.append(el('div', 'tw'), el('div', 'ico', '·'), el('div', 'label', it.ext));
+    r.append(n, el('div', 'num', fmt(it.size)));
+    const bc = el('div', 'barcell'), t = el('div', 'track'), f = el('div', 'fill');
+    f.style.width = (it.size / max * 100).toFixed(2) + '%';
+    t.append(f); bc.append(t); r.append(bc);
+    r.append(el('div', 'num dim', nfmt(it.count)), el('div'), el('div'));
+    g.append(r);
+  }
+  swap(main, g);
+  paintSelBar();
+}
+
+async function renderStale(main) {
+  const sel = el('select');
+  for (const d of [180, 365, 730, 1095]) {
+    const o = el('option', '', d >= 365 ? `older than ${(d / 365).toFixed(0)} year${d >= 730 ? 's' : ''}` : `older than ${d} days`);
+    o.value = d;
+    sel.append(o);
+  }
+  sel.value = S.staleDays || 365;
+  sel.onchange = () => { S.staleDays = Number(sel.value); render(); };
+  $('#tool-extra').append(sel);
+
+  const { items } = await api(`/api/stale?days=${S.staleDays || 365}&limit=300`);
+  if (!items.length) return swap(main, el('div', 'empty', 'Nothing large and untouched found.'));
+  const max = Math.max(...items.map((i) => i.size), 1);
+  const g = el('div', 'grid');
+  g.append(headRow([['', ''], ['folder', 'name'], ['size', 'num'], ['share of largest', ''], ['files', 'num'], ['last modified', 'num'], ['actions', 'num']]));
+  for (const it of items) g.append(makeRow({ ...it, isDir: true, hasChildren: false, pctOfParent: it.size / max }));
+  const wrap = el('div');
+  wrap.append(el('div', 'banner', 'Big folders whose contents have not changed in a long time. Old does not mean unwanted — check before removing.'), g);
+  swap(main, wrap);
+  paintSelBar();
+}
+
+async function renderReclaim(main) {
+  const { items } = await api('/api/suspects');
+  const wrap = el('div');
+  const total = items.reduce((a, s) => a + s.size, 0);
+  wrap.append(el('div', 'banner',
+    `${fmt(total)} sits in regenerable data. Nothing has been touched. Expand a category to inspect and pick — `
+    + `and read each "why", because the cost of getting it back is not the same: a node_modules is one install away, `
+    + `58 GiB of model weights is an afternoon of downloading.`));
+
+  if (!items.length) { wrap.append(el('div', 'empty', 'No known cache or build folders found.')); return swap(main, wrap); }
+
+  const cards = el('div', 'cards');
+  for (const s of items) {
+    const card = el('details', 'card');
+    const sum = el('summary');
+    const left = el('div');
+    left.append(el('div', 'cat', s.category), el('div', 'why', s.why));
+    sum.append(left, el('div', 'num', fmt(s.size)), el('div', 'num dim', `${s.count} folder${s.count === 1 ? '' : 's'}`));
+    const chev = el('div', 'chev');
+    chev.innerHTML = CHEV;
+    sum.append(chev);
+    card.append(sum);
+
+    const box = el('div', 'items');
+    card.append(box);
+    let filled = false;
+    const fill = () => {
+      if (filled) return;
+      filled = true;
+      const max = Math.max(...s.items.map((i) => i.size), 1);
+      const g = el('div', 'grid withpath');
+      for (const it of s.items) {
+        g.append(makeRow({
+          name: it.path.split('/').slice(-2).join('/'),
+          path: it.path, size: it.size, isDir: true, hasChildren: false,
+          files: it.files, mtime: it.mtime, pctOfParent: it.size / max,
+        }, { showPath: true }));
+      }
+      box.append(g);
+      paintSelBar();
+    };
+
+    // Restore whatever was open before this render, then keep S in step with the
+    // user's clicks. Expansion and selection are now fully independent.
+    card.open = S.openCats.has(s.category);
+    if (card.open) fill();
+    card.addEventListener('toggle', () => {
+      if (card.open) { S.openCats.add(s.category); fill(); }
+      else S.openCats.delete(s.category);
+    });
+    cards.append(card);
+  }
+  wrap.append(cards);
+  swap(main, wrap);
+  paintSelBar();
+}
+
+async function renderSearch(main, q) {
+  const { items } = await api(`/api/search?q=${encodeURIComponent(q)}&limit=400`);
+  if (!items.length) return swap(main, el('div', 'empty', `Nothing matching “${q}”.`));
+  const max = Math.max(...items.map((i) => i.size), 1);
+  const g = el('div', 'grid withpath');
+  g.append(headRow([['', ''], [`${items.length} matches`, 'name'], ['size', 'num'], ['share of largest', ''], ['files', 'num'], ['path', ''], ['actions', 'num']]));
+  for (const it of items) g.append(makeRow({ ...it, hasChildren: false, pctOfParent: it.size / max }, { showPath: true }));
+  swap(main, g);
+  paintSelBar();
+}
+
+/* ---------------------------------------------------------------- selection bar */
+function paintSelBar() {
+  const old = $('#selbar');
+  if (old) old.remove();
+  if (!S.sel.size) return;
+
+  const items = [...S.sel].map((p) => S.meta.get(p)).filter(Boolean);
+  const total = items.reduce((a, i) => a + (i.size || 0), 0);
+
+  const bar = el('div', 'selbar');
+  bar.id = 'selbar';
+  bar.append(el('span', '', `${S.sel.size} selected · ${fmt(total)}`));
+
+  const reveal = el('button', 'btn', `Show in ${FILEMANAGER}`);
+  reveal.onclick = async () => {
+    for (const p of [...S.sel].slice(0, 12)) await api('/api/reveal', { method: 'POST', body: { path: p } });
+  };
+  const copy = el('button', 'btn', 'Copy paths');
+  copy.onclick = async () => { await navigator.clipboard.writeText([...S.sel].join('\n')); toast('Paths copied'); };
+  const clear = el('button', 'btn', 'Clear');
+  clear.onclick = () => {
+    const was = [...S.sel];
+    S.sel.clear();
+    for (const p of was) paintRowSel(p, false);
+    paintSelBar();
+  };
+
+  bar.append(reveal, copy);
+  if (!READONLY) {
+    const del = el('button', 'btn danger', 'Delete…');
+    del.onclick = () => confirmDelete(items);
+    bar.append(del);
+  }
+  bar.append(clear);
+  document.body.append(bar);
+}
+
+/* ---------------------------------------------------------------- delete */
+function confirmDelete(items) {
+  if (READONLY) return toast('Running in read-only mode — deletion is disabled.', 'err');
+  items = items.filter((i) => i && i.path && !i.synthetic);
+  if (!items.length) return;
+
+  const total = items.reduce((a, i) => a + (i.size || 0), 0);
+  let mode = 'trash';
+
+  const scrim = el('div', 'scrim');
+  const m = el('div', 'modal');
+  m.append(el('h2', '', `Delete ${items.length} item${items.length === 1 ? '' : 's'} · ${fmt(total)}`));
+
+  const body = el('div', 'body');
+  const list = el('div', 'plist');
+  for (const i of items.slice(0, 200)) {
+    const d = el('div', '', `${fmt(i.size)}   ${i.path}`);
+    d.title = i.path;
+    list.append(d);
+  }
+  if (items.length > 200) list.append(el('div', '', `…and ${items.length - 200} more`));
+  body.append(list);
+
+  const cTrash = el('label', 'choice on');
+  const rTrash = el('input'); rTrash.type = 'radio'; rTrash.name = 'dm'; rTrash.checked = true;
+  const tTrash = el('div');
+  tTrash.append(el('b', '', 'Move to Trash'), el('small', '', 'Recoverable. Space is reclaimed once the Trash is emptied.'));
+  cTrash.append(rTrash, tTrash);
+
+  const cPerm = el('label', 'choice');
+  const rPerm = el('input'); rPerm.type = 'radio'; rPerm.name = 'dm';
+  const tPerm = el('div');
+  tPerm.append(el('b', '', 'Delete permanently'), el('small', '', 'Cannot be undone. Frees the space immediately.'));
+  cPerm.append(rPerm, tPerm);
+
+  const typebox = el('input');
+  typebox.className = 'typebox';
+  typebox.placeholder = 'type DELETE to confirm';
+  typebox.style.display = 'none';
+
+  const go = el('button', 'btn danger', 'Move to Trash');
+
+  const sync = () => {
+    mode = rPerm.checked ? 'permanent' : 'trash';
+    cTrash.classList.toggle('on', !rPerm.checked);
+    cPerm.classList.toggle('on', rPerm.checked);
+    typebox.style.display = rPerm.checked ? 'block' : 'none';
+    go.textContent = rPerm.checked ? 'Delete permanently' : 'Move to Trash';
+    go.disabled = rPerm.checked && typebox.value.trim() !== 'DELETE';
+  };
+  rTrash.onchange = rPerm.onchange = sync;
+  typebox.oninput = sync;
+
+  body.append(cTrash, cPerm, typebox);
+  m.append(body);
+
+  const foot = el('div', 'foot');
+  const cancel = el('button', 'btn', 'Cancel');
+  cancel.onclick = () => scrim.remove();
+  foot.append(cancel, go);
+  m.append(foot);
+
+  go.onclick = async () => {
+    go.disabled = true;
+    go.textContent = 'Working…';
+    try {
+      const res = await api('/api/delete', { method: 'POST', body: { paths: items.map((i) => i.path), mode } });
+      const ok = res.results.filter((r) => r.ok);
+      const bad = res.results.filter((r) => !r.ok);
+      scrim.remove();
+      if (ok.length) toast(`${ok.length} removed · ${res.freedHuman} reclaimed`, 'ok');
+      for (const b of bad) toast(`${b.path}: ${b.error}`, 'err');
+      S.sel.clear();
+      S.kids.clear();
+      S.shown.clear();
+      await refresh();
+    } catch (err) {
+      toast(err.message, 'err');
+      scrim.remove();
+    }
+  };
+
+  scrim.onclick = (e) => { if (e.target === scrim) scrim.remove(); };
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape') { scrim.remove(); document.removeEventListener('keydown', esc); }
+  });
+  scrim.append(m);
+  document.body.append(scrim);
+  sync();
+}
+
+/* ---------------------------------------------------------------- folder picker */
+async function openPicker() {
+  if (S.status && S.status.scanning) return toast('A scan is already running.', 'err');
+
+  let cwd = (S.status && S.status.rootPath) || '';
+  let showHidden = true; // most of the big offenders are dotfolders (.cache, .npm)
+
+  const scrim = el('div', 'scrim');
+  const m = el('div', 'modal');
+  m.append(el('h2', '', 'Scan a different folder'));
+
+  const body = el('div', 'body');
+  const input = el('input');
+  input.className = 'pick-path';
+  input.spellcheck = false;
+  input.placeholder = '/absolute/path/to/folder';
+
+  const chips = el('div', 'chips');
+  const list = el('div', 'dirlist');
+  const note = el('div', 'hint');
+  body.append(input, chips, list, note);
+
+  const opts = el('div', 'pickrow');
+  const detail = el('select');
+  for (const [v, label] of [
+    [65536, 'Normal detail — group files under 64 KiB'],
+    [0, 'Every single file (slower, much more memory)'],
+    [1048576, 'Coarse — group files under 1 MiB'],
+  ]) {
+    const o = el('option', '', label);
+    o.value = v;
+    detail.append(o);
+  }
+  detail.value = String((S.status && S.status.stats && S.status.stats.minFileSize) ?? 65536);
+  const hid = el('input');
+  hid.type = 'checkbox';
+  hid.checked = showHidden;
+  const hidLbl = el('label');
+  hidLbl.append(hid, document.createTextNode('show hidden folders'));
+  const detLbl = el('label');
+  detLbl.append(document.createTextNode('detail'), detail);
+  opts.append(detLbl, hidLbl);
+  body.append(opts);
+  m.append(body);
+
+  const foot = el('div', 'foot');
+  const cancel = el('button', 'btn', 'Cancel');
+  const go = el('button', 'btn primary', 'Scan this folder');
+  foot.append(cancel, go);
+  m.append(foot);
+
+  const close = () => scrim.remove();
+  cancel.onclick = close;
+  hid.onchange = () => { showHidden = hid.checked; draw(); };
+
+  let data = null;
+
+  async function browse(path) {
+    list.innerHTML = '';
+    list.append(el('div', 'hint', 'loading…'));
+    try {
+      data = await api(`/api/browse?path=${encodeURIComponent(path)}`);
+      cwd = data.path;
+      input.value = cwd;
+      draw();
+    } catch (err) {
+      list.innerHTML = '';
+      list.append(el('div', 'hint', err.message));
+      note.textContent = '';
+    }
+  }
+
+  function draw() {
+    if (!data) return;
+    chips.innerHTML = '';
+    for (const p of data.presets) {
+      const c = el('button', 'chip' + (p.volume ? ' vol' : ''), (p.volume ? '💾 ' : '') + p.label);
+      c.title = p.path;
+      c.onclick = () => browse(p.path);
+      chips.append(c);
+    }
+
+    list.innerHTML = '';
+    if (data.parent) {
+      const up = el('button', 'up', '⤴  ..');
+      up.onclick = () => browse(data.parent);
+      list.append(up);
+    }
+    const shown = data.dirs.filter((d) => showHidden || !d.hidden);
+    for (const d of shown) {
+      const b = el('button', d.hidden ? 'hid' : '', '');
+      b.append(el('span', '', '📁'), el('span', '', d.name));
+      b.title = d.path;
+      b.onclick = () => browse(d.path);
+      list.append(b);
+    }
+    if (!shown.length) list.append(el('div', 'hint', data.unreadable
+      ? 'Cannot list this folder — you can still scan it, but expect "no access" rows.'
+      : 'No subfolders here. It can still be scanned.'));
+
+    const free = data.disk ? ` · ${fmt(data.disk.free)} free on this volume` : '';
+    note.textContent = `${shown.length} subfolder${shown.length === 1 ? '' : 's'}${free}`;
+  }
+
+  // Typing a path directly and pressing Enter navigates to it.
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); browse(input.value.trim()); }
+  };
+
+  go.onclick = async () => {
+    const path = input.value.trim();
+    if (!path) return toast('Enter a folder path.', 'err');
+    go.disabled = true;
+    go.textContent = 'Starting…';
+    try {
+      await api('/api/rescan', { method: 'POST', body: { path, minFileSize: Number(detail.value) } });
+      // A new root invalidates everything cached about the old one.
+      S.expanded.clear(); S.kids.clear(); S.shown.clear(); S.sel.clear(); S.liveDirs.clear();
+      S.meta.clear();
+      close();
+      setTimeout(refresh, 200);
+    } catch (err) {
+      toast(err.message, 'err');
+      go.disabled = false;
+      go.textContent = 'Scan this folder';
+    }
+  };
+
+  scrim.onclick = (e) => { if (e.target === scrim) close(); };
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); }
+  });
+  scrim.append(m);
+  document.body.append(scrim);
+  await browse(cwd);
+  input.focus();
+  input.select();
+}
+
+/* ---------------------------------------------------------------- scanning overlay */
+function showProgress(st) {
+  let p = $('#prog');
+  if (!p) {
+    p = el('div', 'progress');
+    p.id = 'prog';
+    p.innerHTML = `<div class="box"><div class="spin"></div><h1>Scanning…</h1>
+      <p id="pp1"></p><p id="pp2"></p>
+      <p style="color:var(--dimmer);margin-top:14px">A first pass over a cold disk can take a few minutes. Later scans are much faster.</p></div>`;
+    document.body.append(p);
+  }
+  const g = st.progress || {};
+  $('#pp1').textContent = st.rootPath || '';
+  $('#pp2').textContent = `${nfmt(g.files || 0)} files · ${nfmt(g.dirs || 0)} folders · ${fmt(g.bytes || 0)}`
+    + (g.queued ? `  ·  ${g.done}/${g.queued} subtrees` : '');
+}
+const hideProgress = () => { const p = $('#prog'); if (p) p.remove(); };
+
+/* ---------------------------------------------------------------- boot */
+async function refresh() {
+  const st = await api('/api/status');
+  paintStatus(st);
+
+  // A scan that threw (bad path, vanished folder) must stop the poll loop and
+  // say so, rather than leaving the progress overlay spinning forever.
+  if (st.error && !st.scanning) {
+    hideProgress();
+    toast(st.error, 'err');
+    if (!st.stats) {
+      swap($('#main'), el('div', 'empty', st.error + '  —  use “Change folder” to pick another.'));
+      return;
+    }
+  }
+
+  if (st.scanning || !st.stats) { showProgress(st); setTimeout(refresh, 300); return; }
+  hideProgress();
+  await render();
+}
+
+$('#btn-pick').onclick = () => openPicker().catch((e) => toast(e.message, 'err'));
+$('#rootpath').onclick = () => openPicker().catch((e) => toast(e.message, 'err'));
+
+$('#btn-rescan').onclick = async () => {
+  if (!confirm('Scan this folder again from scratch?')) return;
+  S.expanded.clear(); S.kids.clear(); S.shown.clear(); S.sel.clear(); S.liveDirs.clear();
+  try {
+    await api('/api/rescan', { method: 'POST', body: {} });
+    setTimeout(refresh, 200);
+  } catch (err) { toast(err.message, 'err'); }
+};
+
+$('#btn-export').onclick = () => {
+  const fmtSel = $('#exportfmt').value;
+  const a = document.createElement('a');
+  a.href = `/api/report?format=${fmtSel}&t=${encodeURIComponent(TOKEN)}`;
+  a.download = '';
+  document.body.append(a);
+  a.click();
+  a.remove();
+  toast('Building report — the download will start shortly.');
+};
+
+let qt;
+$('#q').oninput = () => { clearTimeout(qt); qt = setTimeout(() => render(), 220); };
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && document.activeElement !== $('#q')) { e.preventDefault(); $('#q').focus(); }
+  if (e.key === 'Escape' && document.activeElement === $('#q')) { $('#q').value = ''; render(); }
+});
+
+paintNav();
+refresh().catch((err) => {
+  document.body.innerHTML = `<div class="empty">Could not reach onlyfiles: ${err.message}<br><br>
+    This page needs the token it was opened with. Use the URL printed in your terminal.</div>`;
+});
+</script>
+</body>
+</html>
