@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/gburatti/onlyfiles/main/assets/logo-readme-dark.png">
-    <img src="https://raw.githubusercontent.com/gburatti/onlyfiles/main/assets/logo-readme-light.png" alt="onlyfiles" width="560">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/gburatti/onlyfiles/master/assets/logo-readme-dark.png">
+    <img src="https://raw.githubusercontent.com/gburatti/onlyfiles/master/assets/logo-readme-light.png" alt="onlyfiles" width="560">
   </picture>
 </p>
 
