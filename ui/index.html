@@ -213,6 +213,10 @@
     text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px; font-family: inherit; }
   .flag { font-size: 10px; padding: 0 4px; border-radius: 3px; border: 1px solid var(--line); color: var(--dimmer); flex: none; }
   input[type=checkbox] { accent-color: var(--accent); margin: 0; cursor: pointer; }
+  /* A collapsed folder still has to admit that something inside it is ticked,
+     otherwise a selection hides under a closed branch and gets deleted unseen.
+     The checkbox goes indeterminate; the bar catches the eye while scrolling. */
+  .row.part { box-shadow: inset 2px 0 0 var(--accent); }
 
   /* ---------- reclaim cards ---------- */
   .cards { padding: 14px 16px; display: grid; gap: 10px; }
@@ -239,8 +243,21 @@
   .modal h2 { margin: 0; padding: 16px 18px 10px; font-size: 15px; }
   .modal .body { padding: 0 18px; overflow: auto; }
   .modal .foot { padding: 14px 18px; display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--line); margin-top: 14px; }
-  .plist { font-family: var(--mono); font-size: 11.5px; background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; max-height: 200px; overflow: auto; }
-  .plist div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 1px 0; }
+  /* The doomed items, arranged the way they sit on disk. Grey rows are folder
+     context; rows with the ✕ are what actually gets removed. */
+  .dtree {
+    font-family: var(--mono); font-size: 11.5px; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 7px; padding: 6px 0;
+    max-height: 300px; overflow: auto;
+  }
+  .dtree .n { display: flex; align-items: center; gap: 6px; padding: 1px 10px 1px 0; }
+  .dtree .n .mk { flex: none; width: 11px; color: var(--danger); font-size: 10px; }
+  .dtree .n .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .dtree .n .sz { margin-left: auto; padding-left: 12px; flex: none; font-variant-numeric: tabular-nums; }
+  .dtree .grp { color: var(--dim); }
+  .dtree .grp .sz { color: var(--dimmer); }
+  .dtree .n.del:hover { background: var(--panel); }
+  .modal .body > .hint { display: block; margin-top: 7px; }
   .choice { display: flex; gap: 9px; align-items: flex-start; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; cursor: pointer; }
   .choice.on { border-color: var(--accent); background: var(--accent-dim); }
   .choice b { display: block; }
@@ -431,6 +448,7 @@ const S = {
   meta: new Map(),       // path -> item (so the action bar knows sizes)
   rows: [],
   liveDirs: new Set(),   // dirs the user asked for a full live listing of
+  listings: new Map(),   // path -> [child path] from a live re-read, for unticking
   // Which "Reclaim candidates" groups are expanded. Held here, not in the DOM,
   // so a re-render for any reason cannot silently collapse them.
   openCats: new Set(),
@@ -500,16 +518,16 @@ function headRow(cols) {
 /** One row of the tree/list. `depth` indents the name cell. */
 function makeRow(it, { depth = 0, showPath = false, barBase = 0 } = {}) {
   const real = !!it.path && !it.synthetic;
-  const r = el('div', 'row r' + (real && S.sel.has(it.path) ? ' sel' : ''));
+  const r = el('div', 'row r');
 
   // checkbox
   const cbWrap = el('div');
   if (real && !READONLY) {
     const cb = el('input');
     cb.type = 'checkbox';
-    cb.checked = S.sel.has(it.path);
     cb.onclick = (e) => { e.stopPropagation(); toggleSel(it); };
     cbWrap.append(cb);
+    r._cb = cb;
   }
   r.append(cbWrap);
 
@@ -588,6 +606,8 @@ function makeRow(it, { depth = 0, showPath = false, barBase = 0 } = {}) {
     S.meta.set(it.path, it);
     const seen = S.rowEls.get(it.path);
     if (seen) seen.push(r); else S.rowEls.set(it.path, [r]);
+    r._it = it;
+    applyMark(r, it);
   }
   return r;
 }
@@ -602,24 +622,163 @@ function mkAct(text, title, fn) {
   return b;
 }
 
-/** Repaint the rows for one path to match the current selection state. */
-function paintRowSel(path, on) {
-  for (const r of S.rowEls.get(path) || []) {
-    r.classList.toggle('sel', on);
-    const cb = r.querySelector('input[type=checkbox]');
-    if (cb) cb.checked = on;
+/* S.sel holds coalesced roots, never a path that already sits under another
+ * one. Ticking a folder puts a single entry in the set and everything beneath
+ * it counts as ticked from that. That is what keeps the confirmation showing
+ * "the folder" rather than its ten thousand files, and what stops a folder and
+ * its own contents being added together into a nonsense total. */
+
+/** The ticked path covering `path` — itself, or its nearest ticked ancestor.
+ *  null when nothing at or above it is ticked. */
+function coveringSel(path) {
+  if (!path || !S.sel.size) return null;
+  for (let p = path; ; ) {
+    if (S.sel.has(p)) return p;
+    const cut = p.lastIndexOf('/');
+    if (cut <= 0) break;
+    p = p.slice(0, cut);
+  }
+  return S.sel.has('/') ? '/' : null;
+}
+
+/** How many ticked roots sit strictly inside this folder. */
+function selectedUnder(path) {
+  if (!S.sel.size || !path) return 0;
+  const pre = path.endsWith('/') ? path : path + '/';
+  let n = 0;
+  for (const p of S.sel) if (p.startsWith(pre)) n++;
+  return n;
+}
+
+/** Put one row's checkbox into the right one of three states: ticked, dashed
+ *  (something inside is ticked), or empty. */
+function applyMark(r, it) {
+  if (!it) return;
+  const cover = coveringSel(it.path);
+  const under = cover || !it.isDir ? 0 : selectedUnder(it.path);
+  r.classList.toggle('sel', !!cover);
+  r.classList.toggle('part', under > 0);
+  const cb = r._cb;
+  if (!cb) return;
+  cb.checked = !!cover;
+  cb.indeterminate = under > 0;
+  cb.title = cover === it.path ? 'Selected'
+    : cover ? `Selected along with ${shortPath(cover)} — untick to leave just this one out`
+    : under ? `${under} item${under === 1 ? '' : 's'} selected inside this folder`
+      + (S.expanded.has(it.path) ? '' : ' — expand to see them')
+    : '';
+}
+
+/** Re-mark every rendered row. A cascading tick changes how descendants and
+ *  ancestors read, not just the row that was clicked — but it is still not a
+ *  re-render, which would collapse open branches and lose the scroll position. */
+function paintSel() {
+  for (const rows of S.rowEls.values()) for (const r of rows) applyMark(r, r._it);
+}
+
+/** Tick `path`, swallowing anything already ticked beneath it. */
+function selectPath(path) {
+  const pre = path.endsWith('/') ? path : path + '/';
+  for (const p of [...S.sel]) if (p.startsWith(pre)) S.sel.delete(p);
+  S.sel.add(path);
+}
+
+/** The inverse of a split: once every child of a folder is ticked, tick the
+ *  folder itself instead. Without this, unticking one file and putting it back
+ *  would leave the selection permanently shattered into siblings.
+ *
+ *  Only ever uses a listing that is already cached — that is exactly the folder
+ *  a split just broke open, so tidying up costs no requests and a plain tick of
+ *  one file never triggers a readdir of its (possibly enormous) parent. */
+function coalesceUp(path) {
+  for (let p = path; ; ) {
+    const cut = p.lastIndexOf('/');
+    if (cut <= 0) return;
+    const parent = p.slice(0, cut);
+    const kids = S.listings.get(parent);
+    if (!kids || !kids.length || !kids.every((k) => S.sel.has(k))) return;
+    for (const k of kids) S.sel.delete(k);
+    S.sel.add(parent);
+    p = parent;
   }
 }
 
-function toggleSel(it) {
-  if (!it.path || it.synthetic || READONLY) return;
-  const on = !S.sel.has(it.path);
-  if (on) { S.sel.add(it.path); S.meta.set(it.path, it); }
-  else S.sel.delete(it.path);
-  // Deliberately not a re-render: selecting a row is a per-row visual change.
-  // Rebuilding the whole view for it collapsed open groups, dropped the scroll
-  // position, and made multi-select needlessly painful.
-  paintRowSel(it.path, on);
+// Unticking one entry inside a ticked folder has to name every sibling that is
+// still going. Past a few thousand that is neither useful to read nor sane to
+// send to the delete endpoint, so it is refused rather than done badly.
+const SPLIT_CAP = 2000;
+
+/** Every real child of one folder, live-read so nothing is grouped into a
+ *  rollup bucket or cut off by a listing limit. */
+async function realChildren(path) {
+  if (!S.listings.has(path)) {
+    const data = await api(`/api/listing?path=${encodeURIComponent(path)}`);
+    // The sel bar and the confirmation read sizes out of S.meta, so siblings
+    // promoted into the selection have to be known there before they land in it.
+    for (const it of data.items) if (!S.meta.has(it.path)) S.meta.set(it.path, it);
+    S.listings.set(path, data.items.map((i) => i.path));
+  }
+  return S.listings.get(path);
+}
+
+/** Untick something that is only ticked because a folder above it is. Walks
+ *  down from that folder, replacing each level with its siblings, so "all of
+ *  proj except dist/bundle.js" becomes a concrete list of what is still going. */
+async function splitDown(top, target) {
+  const chain = [];   // just under `top`, down to and including `target`
+  for (let p = target; p && p !== top; ) {
+    chain.unshift(p);
+    const cut = p.lastIndexOf('/');
+    if (cut <= 0) break;
+    p = p.slice(0, cut);
+  }
+  const levels = [top, ...chain.slice(0, -1)];
+
+  // Every listing is fetched before the selection is touched, so an unreadable
+  // folder or an oversized one leaves the selection exactly as it was.
+  const kidsOf = new Map();
+  for (const dir of levels) {
+    const kids = await realChildren(dir);
+    if (kids.length > SPLIT_CAP) {
+      throw new Error(`${shortPath(dir)} holds ${kids.length.toLocaleString()} entries — too many to leave one out of`);
+    }
+    kidsOf.set(dir, kids);
+  }
+
+  S.sel.delete(top);
+  const skip = new Set(chain);
+  for (const dir of levels) {
+    for (const k of kidsOf.get(dir)) if (!skip.has(k)) S.sel.add(k);
+  }
+}
+
+// A split awaits the network, so a second click mid-flight could interleave and
+// break the "no path under another path" invariant.
+let selBusy = false;
+
+async function toggleSel(it) {
+  if (!it.path || it.synthetic || READONLY || selBusy) return;
+  const cover = coveringSel(it.path);
+
+  if (cover === it.path) {
+    S.sel.delete(it.path);                 // untick what was ticked directly
+  } else if (cover) {
+    selBusy = true;
+    try {
+      await splitDown(cover, it.path);     // untick one thing out of a ticked folder
+    } catch (err) {
+      S.sel.delete(cover);                 // fall back to dropping the lot, never to deleting more
+      toast(`${err.message}. Cleared the whole of ${shortPath(cover)} instead.`, 'err');
+    } finally {
+      selBusy = false;
+    }
+  } else {
+    S.meta.set(it.path, it);
+    selectPath(it.path);                   // ticking a folder covers everything in it
+    coalesceUp(it.path);                   // ...and completing a folder folds back into it
+  }
+
+  paintSel();
   paintSelBar();
 }
 
@@ -910,7 +1069,9 @@ function paintSelBar() {
   if (old) old.remove();
   if (!S.sel.size) return;
 
-  const items = [...S.sel].map((p) => S.meta.get(p)).filter(Boolean);
+  // A ticked path with no cached item still has to appear and still has to be
+  // deleted; dropping it here would show a selection that quietly does nothing.
+  const items = [...S.sel].map((p) => S.meta.get(p) || { path: p, size: null });
   const total = items.reduce((a, i) => a + (i.size || 0), 0);
 
   const bar = el('div', 'selbar');
@@ -924,12 +1085,7 @@ function paintSelBar() {
   const copy = el('button', 'btn', 'Copy paths');
   copy.onclick = async () => { await navigator.clipboard.writeText([...S.sel].join('\n')); toast('Paths copied'); };
   const clear = el('button', 'btn', 'Clear');
-  clear.onclick = () => {
-    const was = [...S.sel];
-    S.sel.clear();
-    for (const p of was) paintRowSel(p, false);
-    paintSelBar();
-  };
+  clear.onclick = () => { S.sel.clear(); paintSel(); paintSelBar(); };
 
   bar.append(reveal, copy);
   if (!READONLY) {
@@ -942,6 +1098,74 @@ function paintSelBar() {
 }
 
 /* ---------------------------------------------------------------- delete */
+
+/** Rebuild the shape the doomed paths have on disk, so the confirmation reads
+ *  like the tree view instead of a flat dump of absolute paths. */
+function buildDeleteTree(items) {
+  const root = { name: '/', full: '', children: new Map(), item: null };
+  for (const it of items) {
+    let node = root;
+    for (const seg of it.path.split('/').filter(Boolean)) {
+      let next = node.children.get(seg);
+      if (!next) {
+        next = { name: seg, full: node.full + '/' + seg, children: new Map(), item: null };
+        node.children.set(seg, next);
+      }
+      node = next;
+    }
+    node.item = it;
+  }
+  // A folder that only leads to one place is noise. Fold "Users → giuliano →
+  // Library" down to a single "/Users/giuliano/Library" label so the rows that
+  // matter are not buried under ten levels of indentation.
+  const squash = (n) => {
+    while (!n.item && n.children.size === 1) {
+      const [only] = n.children.values();
+      n.name = n.name === '/' ? '/' + only.name : n.name + '/' + only.name;
+      n.full = only.full;
+      n.item = only.item;
+      n.children = only.children;
+    }
+    for (const c of n.children.values()) squash(c);
+    return n;
+  };
+  return squash(root);
+}
+
+/** Bytes a node accounts for. A selected folder already includes anything of
+ *  its own that is also selected, so its own size wins over summing children. */
+function dtSize(n) {
+  if (n.item) return n.item.size || 0;
+  let t = 0;
+  for (const c of n.children.values()) t += dtSize(c);
+  return t;
+}
+
+function renderDeleteTree(items) {
+  const box = el('div', 'dtree');
+  const CAP = 500;
+  let drawn = 0;
+
+  const walk = (n, depth) => {
+    if (drawn >= CAP) return;
+    drawn++;
+    const row = el('div', 'n ' + (n.item ? 'del' : 'grp'));
+    row.style.paddingLeft = (10 + depth * 14) + 'px';
+    row.append(el('span', 'mk', n.item ? '✕' : ''));
+    row.append(el('span', 'ico', n.item ? iconFor(n.item) : '📂'));
+    const nm = el('span', 'nm', depth === 0 ? shortPath(n.name) : n.name);
+    withTip(nm, n.full, n.item ? (n.item.isDir ? 'folder' : 'file') : 'folder — not deleted');
+    row.append(nm, el('span', 'sz', fmt(dtSize(n))));
+    box.append(row);
+    const kids = [...n.children.values()].sort((a, b) => dtSize(b) - dtSize(a));
+    for (const c of kids) walk(c, depth + 1);
+  };
+  walk(buildDeleteTree(items), 0);
+
+  if (drawn >= CAP) box.append(el('div', 'n grp', `…more rows not shown`));
+  return box;
+}
+
 function confirmDelete(items) {
   if (READONLY) return toast('Running in read-only mode — deletion is disabled.', 'err');
   items = items.filter((i) => i && i.path && !i.synthetic);
@@ -955,14 +1179,10 @@ function confirmDelete(items) {
   m.append(el('h2', '', `Delete ${items.length} item${items.length === 1 ? '' : 's'} · ${fmt(total)}`));
 
   const body = el('div', 'body');
-  const list = el('div', 'plist');
-  for (const i of items.slice(0, 200)) {
-    const d = el('div', '', `${fmt(i.size)}   ${i.path}`);
-    d.title = i.path;
-    list.append(d);
+  body.append(renderDeleteTree(items));
+  if (items.length > 1) {
+    body.append(el('div', 'hint', 'Grey rows are folders shown for context — only the ✕ rows are removed.'));
   }
-  if (items.length > 200) list.append(el('div', '', `…and ${items.length - 200} more`));
-  body.append(list);
 
   const cTrash = el('label', 'choice on');
   const rTrash = el('input'); rTrash.type = 'radio'; rTrash.name = 'dm'; rTrash.checked = true;
@@ -1016,6 +1236,7 @@ function confirmDelete(items) {
       S.sel.clear();
       S.kids.clear();
       S.shown.clear();
+      S.listings.clear();
       await refresh();
     } catch (err) {
       toast(err.message, 'err');
@@ -1149,7 +1370,7 @@ async function openPicker() {
     try {
       await api('/api/rescan', { method: 'POST', body: { path, minFileSize: Number(detail.value) } });
       // A new root invalidates everything cached about the old one.
-      S.expanded.clear(); S.kids.clear(); S.shown.clear(); S.sel.clear(); S.liveDirs.clear();
+      S.expanded.clear(); S.kids.clear(); S.shown.clear(); S.sel.clear(); S.liveDirs.clear(); S.listings.clear();
       S.meta.clear();
       close();
       setTimeout(refresh, 200);
@@ -1215,7 +1436,7 @@ $('#rootpath').onclick = () => openPicker().catch((e) => toast(e.message, 'err')
 
 $('#btn-rescan').onclick = async () => {
   if (!confirm('Scan this folder again from scratch?')) return;
-  S.expanded.clear(); S.kids.clear(); S.shown.clear(); S.sel.clear(); S.liveDirs.clear();
+  S.expanded.clear(); S.kids.clear(); S.shown.clear(); S.sel.clear(); S.liveDirs.clear(); S.listings.clear();
   try {
     await api('/api/rescan', { method: 'POST', body: {} });
     setTimeout(refresh, 200);

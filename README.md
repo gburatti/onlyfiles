@@ -140,6 +140,12 @@ Tick the checkboxes to select several and a bar appears with **Show in Finder**,
 **Copy paths**, **Delete…** and **Clear**. Selecting things never collapses or
 scrolls away anything you had open.
 
+Ticking a folder takes everything inside it, and stays *one* entry rather than
+ten thousand. A folder with something ticked underneath it shows a dash instead
+of a tick, so a selection can never hide under a collapsed branch. Untick one
+thing inside a ticked folder and the selection is rewritten as "all of it except
+that" — put the thing back and it folds up into the folder again.
+
 Rows can also be flagged **no access** (needs Full Disk Access), **other volume**
 (not descended into), or **N links** (a hardlinked file).
 
@@ -147,6 +153,8 @@ Rows can also be flagged **no access** (needs Full Disk Access), **other volume*
 
 Jokes off, because this is the part that can actually cost you something.
 
+- **You see the whole list first.** The confirmation shows exactly what is going,
+  nested the way it sits on disk, with a size against every line.
 - **Move to Trash** is the default. Recoverable. The space comes back when you empty it.
 - **Delete permanently** is a separate, explicit choice, and you have to *type
   `DELETE`* to confirm it.
