@@ -1,6 +1,6 @@
 {
   "name": "onlyfiles",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Fast parallel disk-usage analyser with a local web UI — every folder and every file, biggest first. Show me what you're hiding down there.",
   "main": "index.js",
   "type": "module",
